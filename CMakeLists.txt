@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(OutOfThyme VERSION 0.0.1)
+project(OutOfThyme VERSION 0.0.0)
 
 # Add JUCE
 if(NOT DEFINED JUCE_PATH)
@@ -14,14 +14,14 @@ else()
 endif()
 
 juce_add_plugin(OutOfThyme
-    COMPANY_NAME "BastlInspired"
+    COMPANY_NAME "joohnnyvv"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD TRUE
-    PLUGIN_MANUFACTURER_CODE "Bstl"
+    PLUGIN_MANUFACTURER_CODE "joohnnyvv"
     PLUGIN_CODE "Thym"
     FORMATS VST3 Standalone
 )
@@ -34,6 +34,8 @@ target_sources(OutOfThyme
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
+    Source/TapeEngine.cpp
+    Source/TapeEngine.h
 )
 
 target_compile_definitions(OutOfThyme

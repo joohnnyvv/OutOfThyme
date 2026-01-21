@@ -81,6 +81,7 @@ void OutOfThymeAudioProcessor::changeProgramName (int index, const juce::String&
 
 void OutOfThymeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    tapeEngine.prepare(sampleRate);
 }
 
 void OutOfThymeAudioProcessor::releaseResources()
@@ -117,7 +118,41 @@ void OutOfThymeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    // DSP loop will go here
+    // Update dimensions and parameters (REFINED Phase 1 mapping)
+    float speed = *apvts.getRawParameterValue("tapeSpeed");
+    float speedOffset = *apvts.getRawParameterValue("speedSpread"); // To simulate stereo polarity
+    tapeEngine.setTapeSpeed(speed, speed + speedOffset);
+    
+    tapeEngine.setInterpolationMode(*apvts.getRawParameterValue("hiFi") > 0.5f);
+    tapeEngine.setFreezeMode(*apvts.getRawParameterValue("freeze") > 0.5f);
+    
+    float delayCommon = *apvts.getRawParameterValue("delayCoarse") * getSampleRate();
+    tapeEngine.setMainDelay(delayCommon, delayCommon); // Robot logic will handle L/R offset later
+    
+    tapeEngine.setExtraHeadsSpacing(*apvts.getRawParameterValue("spacing") * getSampleRate());
+    tapeEngine.setExtraHeadsLevels(*apvts.getRawParameterValue("levels"));
+    tapeEngine.setFeedbackGain(*apvts.getRawParameterValue("feedback"));
+
+    // Filter mapping (0.0 to 0.5 = LP, 0.5 to 1.0 = HP)
+    float filtVal = *apvts.getRawParameterValue("filter");
+    int type = (filtVal < 0.5f) ? 1 : 2; // 1=LP, 2=HP
+    float cutoff = (filtVal < 0.5f) ? (filtVal * 2.0f * 10000.0f + 20.0f) : ((filtVal - 0.5f) * 2.0f * 10000.0f + 100.0f);
+    tapeEngine.setFilter(type, cutoff, 0.707f);
+
+    auto* channelDataL = buffer.getWritePointer(0);
+    auto* channelDataR = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
+
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        float inL = channelDataL[sample];
+        float inR = channelDataR ? channelDataR[sample] : inL;
+        float outL, outR;
+
+        tapeEngine.processSample(inL, inR, outL, outR);
+
+        channelDataL[sample] = outL;
+        if (channelDataR) channelDataR[sample] = outR;
+    }
 }
 
 bool OutOfThymeAudioProcessor::hasEditor() const
@@ -151,6 +186,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout OutOfThymeAudioProcessor::cr
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
     
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"inputGain", 1}, "Input Gain", 0.0f, 1.0f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"tapeSpeed", 1}, "Tape Speed", 0.1f, 2.0f, 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"speedSpread", 1}, "Speed Spread", -0.5f, 0.5f, 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayCoarse", 1}, "Delay Coarse", 0.0f, 2.7f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"spacing", 1}, "Spacing", 0.0f, 1.0f, 0.2f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"levels", 1}, "Levels", 0.0f, 1.0f, 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"feedback", 1}, "Feedback", 0.0f, 1.2f, 0.3f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"filter", 1}, "Filter Morph", 0.0f, 1.0f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"hiFi", 1}, "HiFi Mode", false));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"freeze", 1}, "Freeze Mode", false));
 
     return layout;
 }
