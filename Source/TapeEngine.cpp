@@ -29,17 +29,32 @@ void TapeEngine::prepare(double newSampleRate, double maxDelaySeconds)
     spec.maximumBlockSize = 1;
     spec.numChannels = 1;
 
-    filterL.prepare(spec);
-    filterR.prepare(spec);
-    
-    filterL.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
-    filterR.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    inputFilterL.prepare(spec);
+    inputFilterR.prepare(spec);
+    outputFilterL.prepare(spec);
+    outputFilterR.prepare(spec);
+    feedbackFilterL.prepare(spec);
+    feedbackFilterR.prepare(spec);
+
+    inputFilterL.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    inputFilterR.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    inputFilterL.setCutoffFrequency(std::min(20000.0, sampleRate * 0.45));
+    inputFilterR.setCutoffFrequency(std::min(20000.0, sampleRate * 0.45));
 }
 
 void TapeEngine::processSample(float inputL, float inputR, float& outputL, float& outputR)
 {
-    float mainL = readFromBuffer(0, mainHead.posL);
-    float mainR = readFromBuffer(1, mainHead.posR);
+    float filteredInputL = inputL;
+    float filteredInputR = inputR;
+    
+    if (isHiFi)
+    {
+        filteredInputL = inputFilterL.processSample(0, inputL);
+        filteredInputR = inputFilterR.processSample(0, inputR);
+    }
+
+    float mainReadL = readFromBuffer(0, mainHead.posL);
+    float mainReadR = readFromBuffer(1, mainHead.posR);
 
     float extraSumL = 0.0f;
     float extraSumR = 0.0f;
@@ -53,25 +68,39 @@ void TapeEngine::processSample(float inputL, float inputR, float& outputL, float
         }
     }
 
-    float headSumL = mainL + (extraSumL * extraHeadsLevels);
-    float headSumR = mainR + (extraSumR * extraHeadsLevels);
+    float outputCombinedL = mainReadL + (extraSumL * extraHeadsLevels);
+    float outputCombinedR = mainReadR + (extraSumR * extraHeadsLevels);
 
-    float filteredL = filterL.processSample(0, headSumL);
-    float filteredR = filterR.processSample(0, headSumR);
-
-    outputL = filteredL;
-    outputR = filteredR;
+    if (currentFilterType != 0)
+    {
+        outputL = outputFilterL.processSample(0, outputCombinedL);
+        outputR = outputFilterR.processSample(0, outputCombinedR);
+    }
+    else
+    {
+        outputL = outputCombinedL;
+        outputR = outputCombinedR;
+    }
 
     float extraFeedbackWeight = std::max(0.0f, (extraHeadsLevels - 0.5f) * 2.0f);
     
-    float feedbackInputL = mainL + (extraSumL * extraHeadsLevels * extraFeedbackWeight);
-    float feedbackInputR = mainR + (extraSumR * extraHeadsLevels * extraFeedbackWeight);
+    float feedbackInputL = mainReadL + (extraSumL * extraHeadsLevels * extraFeedbackWeight);
+    float feedbackInputR = mainReadR + (extraSumR * extraHeadsLevels * extraFeedbackWeight);
 
-    float feedbackSignalL = filterL.processSample(0, feedbackInputL) * feedbackGain;
-    float feedbackSignalR = filterR.processSample(0, feedbackInputR) * feedbackGain;
+    float feedbackSignalL = feedbackInputL;
+    float feedbackSignalR = feedbackInputR;
 
-    float writeSignalL = freezeMode ? feedbackSignalL : (inputL + feedbackSignalL);
-    float writeSignalR = freezeMode ? feedbackSignalR : (inputR + feedbackSignalR);
+    if (currentFilterType != 0)
+    {
+        feedbackSignalL = feedbackFilterL.processSample(0, feedbackInputL);
+        feedbackSignalR = feedbackFilterR.processSample(0, feedbackInputR);
+    }
+
+    feedbackSignalL *= feedbackGain;
+    feedbackSignalR *= feedbackGain;
+
+    float writeSignalL = freezeMode ? feedbackSignalL : (filteredInputL + feedbackSignalL);
+    float writeSignalR = freezeMode ? feedbackSignalR : (filteredInputR + feedbackSignalR);
 
     buffer.setSample(0, writePos, writeSignalL);
     buffer.setSample(1, writePos, writeSignalR);
@@ -101,24 +130,30 @@ void TapeEngine::setMainDelay(double delaySamplesL, double delaySamplesR)
 
 void TapeEngine::setFilter(int type, float cutoffHz, float resonance)
 {
-    auto filterType = juce::dsp::StateVariableTPTFilterType::lowpass;
-    if (type == 2) filterType = juce::dsp::StateVariableTPTFilterType::highpass;
-    else if (type == 0) filterType = juce::dsp::StateVariableTPTFilterType::bandpass;
+    currentFilterType = type;
+    
+    if (type == 0) return;
 
-    filterL.setType(filterType);
-    filterR.setType(filterType);
+    auto filterType = (type == 2) ? juce::dsp::StateVariableTPTFilterType::highpass 
+                                  : juce::dsp::StateVariableTPTFilterType::lowpass;
+
+    outputFilterL.setType(filterType);
+    outputFilterR.setType(filterType);
+    feedbackFilterL.setType(filterType);
+    feedbackFilterR.setType(filterType);
     
-    filterL.setCutoffFrequency(cutoffHz);
-    filterR.setCutoffFrequency(cutoffHz);
+    outputFilterL.setCutoffFrequency(cutoffHz);
+    outputFilterR.setCutoffFrequency(cutoffHz);
+    feedbackFilterL.setCutoffFrequency(cutoffHz);
+    feedbackFilterR.setCutoffFrequency(cutoffHz);
     
-    filterL.setResonance(resonance);
-    filterR.setResonance(resonance);
+    outputFilterL.setResonance(resonance);
+    outputFilterR.setResonance(resonance);
+    feedbackFilterL.setResonance(resonance);
+    feedbackFilterR.setResonance(resonance);
 }
 
-void TapeEngine::setExtraHeadsSpacing(double spacingSamples)
-{
-    extraHeadsSpacing = spacingSamples;
-}
+
 
 float TapeEngine::readFromBuffer(int channel, double pos) const
 {

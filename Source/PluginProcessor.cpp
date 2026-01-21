@@ -81,7 +81,7 @@ void OutOfThymeAudioProcessor::changeProgramName (int index, const juce::String&
 
 void OutOfThymeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    tapeEngine.prepare(sampleRate);
+    tapeEngine.prepare(sampleRate, 128.0); // Allocate for 128s to handle extreme low speeds (108s)
 }
 
 void OutOfThymeAudioProcessor::releaseResources()
@@ -118,34 +118,48 @@ void OutOfThymeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    // Update dimensions and parameters (REFINED Phase 1 mapping)
     float speed = *apvts.getRawParameterValue("tapeSpeed");
-    float speedOffset = *apvts.getRawParameterValue("speedSpread"); // To simulate stereo polarity
+    float speedOffset = *apvts.getRawParameterValue("speedSpread");
     tapeEngine.setTapeSpeed(speed, speed + speedOffset);
     
     tapeEngine.setInterpolationMode(*apvts.getRawParameterValue("hiFi") > 0.5f);
     tapeEngine.setFreezeMode(*apvts.getRawParameterValue("freeze") > 0.5f);
     
     float delayCommon = *apvts.getRawParameterValue("delayCoarse") * getSampleRate();
-    tapeEngine.setMainDelay(delayCommon, delayCommon); // Robot logic will handle L/R offset later
+    tapeEngine.setMainDelay(delayCommon, delayCommon);
     
     tapeEngine.setExtraHeadsSpacing(*apvts.getRawParameterValue("spacing") * getSampleRate());
     tapeEngine.setExtraHeadsLevels(*apvts.getRawParameterValue("levels"));
     tapeEngine.setFeedbackGain(*apvts.getRawParameterValue("feedback"));
 
-    // Filter mapping (0.0 to 0.5 = LP, 0.5 to 1.0 = HP)
     float filtVal = *apvts.getRawParameterValue("filter");
-    int type = (filtVal < 0.5f) ? 1 : 2; // 1=LP, 2=HP
-    float cutoff = (filtVal < 0.5f) ? (filtVal * 2.0f * 10000.0f + 20.0f) : ((filtVal - 0.5f) * 2.0f * 10000.0f + 100.0f);
+    int type = 0;
+    float cutoff = 1000.0f;
+    
+    if (filtVal < 0.45f) 
+    {
+        type = 1; // LP
+        float norm = filtVal / 0.45f;
+        cutoff = norm * 15000.0f + 20.0f;
+    }
+    else if (filtVal > 0.55f)
+    {
+        type = 2; // HP
+        float norm = (filtVal - 0.55f) / 0.45f;
+        cutoff = norm * 15000.0f + 20.0f;
+    }
+    
     tapeEngine.setFilter(type, cutoff, 0.707f);
 
     auto* channelDataL = buffer.getWritePointer(0);
     auto* channelDataR = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
 
+    float inputGainLinear = *apvts.getRawParameterValue("inputGain");
+
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
-        float inL = channelDataL[sample];
-        float inR = channelDataR ? channelDataR[sample] : inL;
+        float inL = channelDataL[sample] * inputGainLinear;
+        float inR = channelDataR ? channelDataR[sample] * inputGainLinear : inL;
         float outL, outR;
 
         tapeEngine.processSample(inL, inR, outL, outR);
@@ -185,7 +199,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout OutOfThymeAudioProcessor::cr
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
     
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"inputGain", 1}, "Input Gain", 0.0f, 1.0f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"inputGain", 1}, "Input Gain", 0.0f, 10.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"tapeSpeed", 1}, "Tape Speed", 0.1f, 2.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"speedSpread", 1}, "Speed Spread", -0.5f, 0.5f, 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayCoarse", 1}, "Delay Coarse", 0.0f, 2.7f, 0.5f));

@@ -21,12 +21,14 @@ juce_add_plugin(OutOfThyme
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD TRUE
-    PLUGIN_MANUFACTURER_CODE "joohnnyvv"
+    PLUGIN_MANUFACTURER_CODE "john"
     PLUGIN_CODE "Thym"
     FORMATS VST3 Standalone
 )
 
 juce_generate_juce_header(OutOfThyme)
+
+juce_add_binary_data(OutOfThymeData SOURCES Source/Assets/bg.png)
 
 target_sources(OutOfThyme
     PRIVATE
@@ -59,6 +61,7 @@ target_link_libraries(OutOfThyme
     juce::juce_events
     juce::juce_core
     juce::juce_dsp
+    OutOfThymeData
 )
 
 # Set C++ standard
