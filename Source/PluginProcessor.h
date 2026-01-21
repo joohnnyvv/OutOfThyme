@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "TapeEngine.h"
 
 class OutOfThymeAudioProcessor  : public juce::AudioProcessor
 {
@@ -38,5 +39,6 @@ public:
     juce::AudioProcessorValueTreeState apvts { *this, nullptr, "Parameters", createParameterLayout() };
 
 private:
+    TapeEngine tapeEngine;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OutOfThymeAudioProcessor)
 };
