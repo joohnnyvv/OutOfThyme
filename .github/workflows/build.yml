@@ -1,0 +1,33 @@
+name: Build and Test
+
+jobs:
+  build_windows:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get JUCE
+        run: |
+          git clone https://github.com/juce-framework/JUCE.git --depth 1 $HOME/JUCE
+        shell: bash
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -DJUCE_PATH=$HOME/JUCE
+        shell: bash
+
+      - name: Build
+        run: |
+          cmake --build build --config Release
+        shell: bash
+
+      - name: Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OutOfThyme-VST3-Windows
+          path: build/OutOfThyme_artefacts/Release/VST3/
