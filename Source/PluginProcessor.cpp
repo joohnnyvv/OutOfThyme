@@ -150,7 +150,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout OutOfThymeAudioProcessor::cr
 {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
     
-    // We'll add parameters in the next steps as we implement the phases
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"inputGain", 1}, "Input Gain", 0.0f, 1.0f, 0.5f));
 
     return layout;

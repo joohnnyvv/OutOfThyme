@@ -3,10 +3,13 @@ cmake_minimum_required(VERSION 3.22)
 project(OutOfThyme VERSION 0.0.1)
 
 # Add JUCE
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/CMakeLists.txt")
-    add_subdirectory(JUCE)
+if(NOT DEFINED JUCE_PATH)
+    set(JUCE_PATH "$ENV{USERPROFILE}/JUCE")
+endif()
+
+if(EXISTS "${JUCE_PATH}/CMakeLists.txt")
+    add_subdirectory("${JUCE_PATH}" JUCE)
 else()
-    # Fallback to finding JUCE if it's not in the subdirectory
     find_package(JUCE CONFIG REQUIRED)
 endif()
 
@@ -37,6 +40,7 @@ target_compile_definitions(OutOfThyme
     PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
 target_link_libraries(OutOfThyme
