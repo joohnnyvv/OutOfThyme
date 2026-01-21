@@ -53,20 +53,60 @@ void TapeEngine::processSample(float inputL, float inputR, float& outputL, float
         filteredInputR = inputFilterR.processSample(0, inputR);
     }
 
+    delayDistanceL += (1.0 - tapeSpeedL);
+    delayDistanceR += (1.0 - tapeSpeedR);
+
+    while (delayDistanceL < 0) delayDistanceL += (double)bufferLength;
+    delayDistanceL = std::fmod(delayDistanceL, (double)bufferLength);
+    while (delayDistanceR < 0) delayDistanceR += (double)bufferLength;
+    delayDistanceR = std::fmod(delayDistanceR, (double)bufferLength);
+
+    mainHead.posL = (double)writePos - delayDistanceL;
+    mainHead.posR = (double)writePos - delayDistanceR;
+    
+    while (mainHead.posL < 0) mainHead.posL += (double)bufferLength;
+    mainHead.posL = std::fmod(mainHead.posL, (double)bufferLength);
+    while (mainHead.posR < 0) mainHead.posR += (double)bufferLength;
+    mainHead.posR = std::fmod(mainHead.posR, (double)bufferLength);
+
     float mainReadL = readFromBuffer(0, mainHead.posL);
     float mainReadR = readFromBuffer(1, mainHead.posR);
+
+    float spacingSamples = 0.0f;
+    if (spacingSync)
+    {
+        double beatDuration = 60.0 / bpm;
+        double divisions[] = { 0.03125, 0.0625, 0.125, 0.25, 0.5, 1.0, 2.0 };
+        int idx = static_cast<int>(std::clamp(spacingParam * 6.0f, 0.0f, 6.0f));
+        double spacingTime = divisions[idx] * beatDuration;
+        spacingSamples = static_cast<float>(spacingTime * tapeSpeedL * sampleRate);
+    }
+    else
+    {
+        spacingSamples = spacingParam * (float)sampleRate;
+    }
 
     float extraSumL = 0.0f;
     float extraSumR = 0.0f;
 
-    if (extraHeadsLevels > 0.001f)
+    for (int i = 0; i < 3; ++i)
     {
-        for (const auto& head : extraHeads)
-        {
-            extraSumL += readFromBuffer(0, head.posL);
-            extraSumR += readFromBuffer(1, head.posR);
-        }
+        double offset = (double)(i + 1) * spacingSamples;
+        double posL = mainHead.posL - offset;
+        double posR = mainHead.posR - offset;
+        
+        while (posL < 0) posL += (double)bufferLength;
+        posL = std::fmod(posL, (double)bufferLength);
+        
+        while (posR < 0) posR += (double)bufferLength;
+        posR = std::fmod(posR, (double)bufferLength);
+
+        extraSumL += readFromBuffer(0, posL);
+        extraSumR += readFromBuffer(1, posR);
     }
+    
+    extraSumL *= 0.33f;
+    extraSumR *= 0.33f;
 
     float outputCombinedL = mainReadL + (extraSumL * extraHeadsLevels);
     float outputCombinedR = mainReadR + (extraSumR * extraHeadsLevels);
@@ -116,7 +156,6 @@ void TapeEngine::processSample(float inputL, float inputR, float& outputL, float
             writeSignalL = filteredInputL;
             writeSignalR = filteredInputR;
             
-            // Countdown
             if (--samplesToFill <= 0)
             {
                 freezeState = FreezeState::Frozen;
@@ -135,33 +174,20 @@ void TapeEngine::processSample(float inputL, float inputR, float& outputL, float
     buffer.setSample(0, writePos, writeSignalL);
     buffer.setSample(1, writePos, writeSignalR);
 
-    mainHead.posL = std::fmod(mainHead.posL + tapeSpeedL, (double)bufferLength);
-    mainHead.posR = std::fmod(mainHead.posR + tapeSpeedR, (double)bufferLength);
-
-    if (mainHead.posL < 0) mainHead.posL += (double)bufferLength;
-    if (mainHead.posR < 0) mainHead.posR += (double)bufferLength;
-
-    for (int i = 0; i < 3; ++i)
-    {
-        extraHeads[i].posL = std::fmod(mainHead.posL + (double)(i + 1) * extraHeadsSpacing, (double)bufferLength);
-        extraHeads[i].posR = std::fmod(mainHead.posR + (double)(i + 1) * extraHeadsSpacing, (double)bufferLength);
-        
-        if (extraHeads[i].posL < 0) extraHeads[i].posL += (double)bufferLength;
-        if (extraHeads[i].posR < 0) extraHeads[i].posR += (double)bufferLength;
-    }
 
     writePos = (writePos + 1) % bufferLength;
 }
 
-void TapeEngine::setMainDelay(double delaySamplesL, double delaySamplesR)
+void TapeEngine::setMainDelay(float coarse, float fine)
 {
-    mainHead.posL = (double)writePos - delaySamplesL;
-    while (mainHead.posL < 0) mainHead.posL += (double)bufferLength;
-    mainHead.posL = std::fmod(mainHead.posL, (double)bufferLength);
+    float newTargetDistance = ((coarse * 2.7f) + (fine * 0.05f)) * (float)sampleRate;
     
-    mainHead.posR = (double)writePos - delaySamplesR;
-    while (mainHead.posR < 0) mainHead.posR += (double)bufferLength;
-    mainHead.posR = std::fmod(mainHead.posR, (double)bufferLength);
+    if (std::abs(newTargetDistance - lastTargetDistance) > 1.0f)
+    {
+        delayDistanceL = (double)newTargetDistance;
+        delayDistanceR = (double)newTargetDistance;
+        lastTargetDistance = newTargetDistance;
+    }
 }
 
 void TapeEngine::setFreezeMode(bool freeze)

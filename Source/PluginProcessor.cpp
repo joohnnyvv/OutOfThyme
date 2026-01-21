@@ -124,11 +124,25 @@ void OutOfThymeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     
     tapeEngine.setInterpolationMode(*apvts.getRawParameterValue("hiFi") > 0.5f);
     tapeEngine.setFreezeMode(*apvts.getRawParameterValue("freeze") > 0.5f);
+
+    double bpm = 120.0;
+    if (auto* ph = getPlayHead())
+    {
+        if (auto pos = ph->getPosition())
+        {
+            if (auto b = pos->getBpm())
+                bpm = *b;
+        }
+    }
+    tapeEngine.setBpm(bpm); 
     
-    float delayCommon = *apvts.getRawParameterValue("delayCoarse") * getSampleRate();
-    tapeEngine.setMainDelay(delayCommon, delayCommon);
+    float coarse = *apvts.getRawParameterValue("delayCoarse");
+    float fine = *apvts.getRawParameterValue("delayFine");
+    tapeEngine.setMainDelay(coarse, fine);
     
-    tapeEngine.setExtraHeadsSpacing(*apvts.getRawParameterValue("spacing") * getSampleRate());
+    tapeEngine.setExtraHeadsSpacing(*apvts.getRawParameterValue("spacing"));
+    tapeEngine.setSpacingSync(*apvts.getRawParameterValue("spacingSync") > 0.5f);
+    
     tapeEngine.setExtraHeadsLevels(*apvts.getRawParameterValue("levels"));
     tapeEngine.setFeedbackGain(*apvts.getRawParameterValue("feedback"));
 
@@ -140,13 +154,13 @@ void OutOfThymeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     {
         type = 1; // LP
         float norm = filtVal / 0.45f;
-        cutoff = norm * 15000.0f + 20.0f;
+        cutoff = 20.0f * std::pow(1000.0f, norm); // 20Hz to 20kHz logarithmic
     }
     else if (filtVal > 0.55f)
     {
         type = 2; // HP
         float norm = (filtVal - 0.55f) / 0.45f;
-        cutoff = norm * 15000.0f + 20.0f;
+        cutoff = 20.0f * std::pow(1000.0f, norm);
     }
     
     tapeEngine.setFilter(type, cutoff, 0.707f);
@@ -206,9 +220,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout OutOfThymeAudioProcessor::cr
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"tapeSpeed", 1}, "Tape Speed", 0.1f, 2.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"speedSpread", 1}, "Speed Spread", -0.5f, 0.5f, 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayCoarse", 1}, "Delay Coarse", 0.01f, 2.7f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayFine", 1}, "Delay Fine", 0.0f, 1.0f, 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"spacing", 1}, "Spacing", 0.0f, 1.0f, 0.2f));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"spacingSync", 1}, "Spacing Sync", false));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"levels", 1}, "Levels", 0.0f, 1.0f, 0.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"feedback", 1}, "Feedback", 0.0f, 1.2f, 0.3f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"feedback", 1}, "Feedback", 0.0f, 1.0f, 0.3f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"filter", 1}, "Filter Morph", 0.0f, 1.0f, 0.5f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"mix", 1}, "Dry/Wet Mix", 0.0f, 1.0f, 0.5f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume", 1}, "Output Volume", 0.0f, 2.0f, 1.0f));

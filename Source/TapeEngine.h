@@ -17,9 +17,10 @@ public:
     void setInterpolationMode(bool useHiFi) { isHiFi = useHiFi; }
     void setFreezeMode(bool freeze);
     
-    void setMainDelay(double delaySamplesL, double delaySamplesR);
-
-    void setExtraHeadsSpacing(double spacingSamples) { extraHeadsSpacing = spacingSamples; }
+    void setMainDelay(float coarse, float fine);
+    void setExtraHeadsSpacing(float spacing) { spacingParam = spacing; }
+    void setSpacingSync(bool sync) { spacingSync = sync; }
+    void setBpm(double newBpm) { bpm = newBpm; }
 
     void setExtraHeadsLevels(float newLevels) { extraHeadsLevels = newLevels; }
 
@@ -58,9 +59,18 @@ private:
 
     double sampleRate { 44100.0 };
     double tapeSpeedL { 1.0 }, tapeSpeedR { 1.0 };
-    double extraHeadsSpacing { 0.0 };
+    float coarseDelay { 0.5f };
+    float fineDelay { 0.0f };
+    float spacingParam { 0.2f };
+    bool spacingSync { false };
+    double bpm { 120.0 };
     float extraHeadsLevels { 0.0f };
     float feedbackGain { 0.0f };
+    
+    double delayDistanceL { 0.0 };
+    double delayDistanceR { 0.0 };
+    float lastTargetDistance { -1.0f };
+
     int currentFilterType { 0 };
     bool isHiFi { false };
 
