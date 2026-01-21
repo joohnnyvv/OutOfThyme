@@ -81,7 +81,7 @@ void OutOfThymeAudioProcessor::changeProgramName (int index, const juce::String&
 
 void OutOfThymeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    tapeEngine.prepare(sampleRate, 128.0); // Allocate for 128s to handle extreme low speeds (108s)
+    tapeEngine.prepare(sampleRate, 128.0); // Allocate for 128s to handle extreme slowdowns
 }
 
 void OutOfThymeAudioProcessor::releaseResources()
@@ -151,21 +151,24 @@ void OutOfThymeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     
     tapeEngine.setFilter(type, cutoff, 0.707f);
 
+    float inputGain = *apvts.getRawParameterValue("inputGain");
+    float mix = *apvts.getRawParameterValue("mix");
+    float outputVolume = *apvts.getRawParameterValue("volume");
+
     auto* channelDataL = buffer.getWritePointer(0);
     auto* channelDataR = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
 
-    float inputGainLinear = *apvts.getRawParameterValue("inputGain");
-
     for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
     {
-        float inL = channelDataL[sample] * inputGainLinear;
-        float inR = channelDataR ? channelDataR[sample] * inputGainLinear : inL;
-        float outL, outR;
+        float dryL = channelDataL[sample] * inputGain;
+        float dryR = channelDataR ? (channelDataR[sample] * inputGain) : dryL;
+        
+        float wetL, wetR;
+        tapeEngine.processSample(dryL, dryR, wetL, wetR);
 
-        tapeEngine.processSample(inL, inR, outL, outR);
-
-        channelDataL[sample] = outL;
-        if (channelDataR) channelDataR[sample] = outR;
+        channelDataL[sample] = (dryL * (1.0f - mix) + wetL * mix) * outputVolume;
+        if (channelDataR) 
+            channelDataR[sample] = (dryR * (1.0f - mix) + wetR * mix) * outputVolume;
     }
 }
 
@@ -202,11 +205,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout OutOfThymeAudioProcessor::cr
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"inputGain", 1}, "Input Gain", 0.0f, 10.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"tapeSpeed", 1}, "Tape Speed", 0.1f, 2.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"speedSpread", 1}, "Speed Spread", -0.5f, 0.5f, 0.0f));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayCoarse", 1}, "Delay Coarse", 0.0f, 2.7f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"delayCoarse", 1}, "Delay Coarse", 0.01f, 2.7f, 0.5f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"spacing", 1}, "Spacing", 0.0f, 1.0f, 0.2f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"levels", 1}, "Levels", 0.0f, 1.0f, 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"feedback", 1}, "Feedback", 0.0f, 1.2f, 0.3f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"filter", 1}, "Filter Morph", 0.0f, 1.0f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"mix", 1}, "Dry/Wet Mix", 0.0f, 1.0f, 0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{"volume", 1}, "Output Volume", 0.0f, 2.0f, 1.0f));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"hiFi", 1}, "HiFi Mode", false));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"freeze", 1}, "Freeze Mode", false));
 

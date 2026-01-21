@@ -15,7 +15,7 @@ public:
 
     void setTapeSpeed(double speedL, double speedR) { tapeSpeedL = speedL; tapeSpeedR = speedR; }
     void setInterpolationMode(bool useHiFi) { isHiFi = useHiFi; }
-    void setFreezeMode(bool freeze) { freezeMode = freeze; }
+    void setFreezeMode(bool freeze);
     
     void setMainDelay(double delaySamplesL, double delaySamplesR);
 
@@ -23,7 +23,16 @@ public:
 
     void setExtraHeadsLevels(float newLevels) { extraHeadsLevels = newLevels; }
 
-    void setFeedbackGain(float newGain) { feedbackGain = newGain; }
+    void setFeedbackGain(float newGain)
+    {
+        if (std::abs(newGain - feedbackGain) > 0.001f)
+        {
+            if (freezeState == FreezeState::Frozen)
+                feedbackKnobMoved = true;
+                
+            feedbackGain = newGain; 
+        }
+    }
 
     void setFilter(int type, float cutoffHz, float resonance);
 
@@ -52,9 +61,18 @@ private:
     double extraHeadsSpacing { 0.0 };
     float extraHeadsLevels { 0.0f };
     float feedbackGain { 0.0f };
-    int currentFilterType { 0 }; // 0: Bypass, 1: LP, 2: HP
+    int currentFilterType { 0 };
     bool isHiFi { false };
-    bool freezeMode { false };
+
+    enum class FreezeState
+    {
+        Normal,
+        Filling,
+        Frozen
+    };
+    FreezeState freezeState { FreezeState::Normal };
+    int samplesToFill { 0 };
+    bool feedbackKnobMoved { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TapeEngine)
 };

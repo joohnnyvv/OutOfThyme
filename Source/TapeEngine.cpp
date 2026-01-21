@@ -89,18 +89,48 @@ void TapeEngine::processSample(float inputL, float inputR, float& outputL, float
 
     float feedbackSignalL = feedbackInputL;
     float feedbackSignalR = feedbackInputR;
-
     if (currentFilterType != 0)
     {
         feedbackSignalL = feedbackFilterL.processSample(0, feedbackInputL);
         feedbackSignalR = feedbackFilterR.processSample(0, feedbackInputR);
     }
 
-    feedbackSignalL *= feedbackGain;
-    feedbackSignalR *= feedbackGain;
+    float writeSignalL = 0.0f;
+    float writeSignalR = 0.0f;
+    
+    float activeFeedbackGain = feedbackGain;
+    
+    if (freezeState == FreezeState::Frozen && !feedbackKnobMoved)
+        activeFeedbackGain = 1.0f;
 
-    float writeSignalL = freezeMode ? feedbackSignalL : (filteredInputL + feedbackSignalL);
-    float writeSignalR = freezeMode ? feedbackSignalR : (filteredInputR + feedbackSignalR);
+    switch (freezeState)
+    {
+        case FreezeState::Normal:
+            feedbackSignalL *= activeFeedbackGain;
+            feedbackSignalR *= activeFeedbackGain;
+            writeSignalL = filteredInputL + feedbackSignalL;
+            writeSignalR = filteredInputR + feedbackSignalR;
+            break;
+
+        case FreezeState::Filling:
+            writeSignalL = filteredInputL;
+            writeSignalR = filteredInputR;
+            
+            // Countdown
+            if (--samplesToFill <= 0)
+            {
+                freezeState = FreezeState::Frozen;
+                feedbackKnobMoved = false;
+            }
+            break;
+
+        case FreezeState::Frozen:
+            feedbackSignalL *= activeFeedbackGain;
+            feedbackSignalR *= activeFeedbackGain;
+            writeSignalL = feedbackSignalL;
+            writeSignalR = feedbackSignalR;
+            break;
+    }
 
     buffer.setSample(0, writePos, writeSignalL);
     buffer.setSample(1, writePos, writeSignalR);
@@ -108,10 +138,16 @@ void TapeEngine::processSample(float inputL, float inputR, float& outputL, float
     mainHead.posL = std::fmod(mainHead.posL + tapeSpeedL, (double)bufferLength);
     mainHead.posR = std::fmod(mainHead.posR + tapeSpeedR, (double)bufferLength);
 
+    if (mainHead.posL < 0) mainHead.posL += (double)bufferLength;
+    if (mainHead.posR < 0) mainHead.posR += (double)bufferLength;
+
     for (int i = 0; i < 3; ++i)
     {
         extraHeads[i].posL = std::fmod(mainHead.posL + (double)(i + 1) * extraHeadsSpacing, (double)bufferLength);
         extraHeads[i].posR = std::fmod(mainHead.posR + (double)(i + 1) * extraHeadsSpacing, (double)bufferLength);
+        
+        if (extraHeads[i].posL < 0) extraHeads[i].posL += (double)bufferLength;
+        if (extraHeads[i].posR < 0) extraHeads[i].posR += (double)bufferLength;
     }
 
     writePos = (writePos + 1) % bufferLength;
@@ -126,6 +162,28 @@ void TapeEngine::setMainDelay(double delaySamplesL, double delaySamplesR)
     mainHead.posR = (double)writePos - delaySamplesR;
     while (mainHead.posR < 0) mainHead.posR += (double)bufferLength;
     mainHead.posR = std::fmod(mainHead.posR, (double)bufferLength);
+}
+
+void TapeEngine::setFreezeMode(bool freeze)
+{
+    if (freeze)
+    {
+        if (freezeState == FreezeState::Normal)
+        {
+            freezeState = FreezeState::Filling;
+            
+            double currentDelay = (double)(writePos - mainHead.posL);
+            if (currentDelay < 0) currentDelay += (double)bufferLength;
+            
+            samplesToFill = static_cast<int>(currentDelay);
+            if (samplesToFill <= 0) samplesToFill = 1;
+        }
+    }
+    else
+    {
+        freezeState = FreezeState::Normal;
+        feedbackKnobMoved = false;
+    }
 }
 
 void TapeEngine::setFilter(int type, float cutoffHz, float resonance)
